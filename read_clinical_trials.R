@@ -31,7 +31,8 @@ get_data <- function(id = "NCT02979002"){
     n_elements <- length(xc)
     out_list <- list()
     for (i in 1:n_elements){
-      message(i)
+      try({
+      # message(i)
       this_element <- xc[i]
       this_name <- xml_name(this_element)
       this_content <- xml_contents(this_element)
@@ -47,7 +48,7 @@ get_data <- function(id = "NCT02979002"){
         col_names[duplicated(col_names)] <- paste0(col_names[duplicated(col_names)],
                                                    '_b')
       }
-      try({
+
         out <- data_frame(key = col_names,
                           value = values)
         out_list[[i]] <- out
@@ -88,4 +89,76 @@ get_data <- function(id = "NCT02979002"){
   #            '')
 }
 
-a <- get_data()
+# a <- get_data()
+
+# Read in the actual trials stuff
+library(readxl)
+xll <- list()
+counter <- 0
+for (i in 1:19){
+  x <- read_excel('data/WHO_ICPRT_NTDs.xlsx', sheet = i)
+  if(ncol(x) > 20){ counter <- counter + 1}
+  x$Target_size <- as.character(x$Target_size)
+  x$Inclusion_gender <- as.character(x$Inclusion_gender)
+  xll[[counter]] <- x  
+  message(counter)
+  print(class(x))
+}
+xl <- bind_rows(xll)
+
+# Keep only those from clinical trials.gov
+xl <- 
+  xl %>%
+  filter(grepl('clinicaltrials.gov', web_address))
+
+# library(devtools)
+# https://github.com/sachsmc/rclinicaltrials
+# install_github('sachsmc/rclinicaltrials')
+library(rclinicaltrials)
+
+# Loop through each one, use trial id, get data
+# results_list <- list()
+info_list <- list()
+for (i in 1:nrow(xl)){
+  message(i)
+  try({
+    this_id <- xl$TrialID[i]
+    x <- clinicaltrials_search(query = this_id)
+    y <- clinicaltrials_download(tframe = x, count = 1, include_results = TRUE)
+    # this_result <- get_data(id = this_id)
+    # this_result <- y$study_results
+    z <- y$study_information
+    this_info <- z$study_info
+    if(!is.null(z$outcomes)){
+      if(nrow(z$outcomes) == 1){
+      outcome <- z$outcomes[1]
+      this_info <- cbind(this_info, outcome)
+      }}
+    if(!is.null(z$locations)){
+      if(nrow(z$locations) == 1){
+        location <- z$locations[1]
+        this_info <- cbind(this_info, location)
+      }
+    }
+
+    # results_list[[i]] <- this_result
+    info_list[[i]] <- this_info
+  })
+}
+results <- bind_rows(info_list)
+write_csv(results, 'results.csv')
+# results <- bind_rows(results_list)
+results <- results[!duplicated(results),]
+results <- results %>%
+  group_by(study,
+           key) %>%
+  summarise(value = first(value))
+wide <- spread(data = results, key = key, value = value)
+flags <- rep(NA, ncol(wide))
+for (j in 1:length(flags)){
+  flags[j] <-
+  length(which(is.na(wide[,j]))) > (0.5 * nrow(wide))
+}
+wide <- wide[,!flags]
+
+
