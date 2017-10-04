@@ -222,6 +222,8 @@ for (i in 1:nrow(xl)){
 results <- bind_rows(info_list)
 write_csv(results, 'results_hiv.csv')
 
+hiv <- read_csv('results_hiv.csv')
+
 
 ######################################################
 # TB
@@ -343,3 +345,59 @@ for (i in 1:nrow(xl)){
 }
 results <- bind_rows(info_list)
 write_csv(results, 'results_malaria.csv')
+
+
+# How to get the phase in non-phased studies
+get_phase <- function(nct_id = 'NCT02431429'){
+  require(rvest)
+  
+  page <- html(paste0('https://clinicaltrials.gov/ct2/show/',
+                      nct_id))
+  
+  #Scrape for phase
+  text <- page %>% 
+    html_nodes("div div") %>%
+    html_text() 
+  
+  # Keep only that which mentions phase
+  phase_text <- text[grepl('phase ([0-9])', tolower(text))]
+  phase_text <- text[grepl('phase ', tolower(text)) &
+                       grepl("[[:digit:]]", text)]
+  
+  # Get only the value right after phase
+  phases <- list()
+  for(i in 1:length(phase_text)){
+    split <- unlist(strsplit(phase_text[i], ' '))
+    phase_index <- which(tolower(split) == 'phase')
+    phase <- split[phase_index + 1]
+    phase <- substr(phase, 1, 1)
+    phase <- as.numeric(phase)
+    phases[[i]] <- phase
+  }
+  phase <- sort(unique(unlist(phases)))
+  return(paste0(phase, collapse = '; '))
+}
+
+# Read and modify phases
+files <- c('results_hiv.csv',
+           'results_tb.csv',
+           'results.csv',
+           'results_malaria.csv')
+for (i in 1:length(files)){
+  this_file <- files[i]
+  this_data <- readr::read_csv(this_file)
+  this_data$phase_scrape <- NA
+  for (r in 1:nrow(this_data)){
+    message(this_file, ' ',
+            'row ', r,
+            ' of ', nrow(this_data))
+    if(is.na(this_data$phase[r]) | this_data$phase[r] == 'N/A'){
+      try({
+        phase_attempt <- get_phase(this_data$nct_id[r])
+        this_data$phase_scrape[r] <- phase_attempt
+      })
+    }
+  }
+  readr::write_csv(this_data,
+                   paste0('phased_', this_file))
+}
